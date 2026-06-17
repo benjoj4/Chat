@@ -1,0 +1,347 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #e5e5e5;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.auth-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  /* Fondo degradado profundo imitando el cielo nocturno de tu imagen */
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Efecto opcional: Añade pequeños puntos blancos simulando estrellas de fondo */
+.auth-screen::before {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-image: 
+    radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+    radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
+    radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px);
+  background-size: 550px 550px, 350px 350px, 250px 250px;
+  background-position: 0 0, 40px 60px, 130px 270px;
+  opacity: 0.4;
+}
+
+.auth-card {
+  /* Fondo semi-transparente azulado (Efecto cristal) */
+  background: rgba(15, 23, 42, 0.45);
+  padding: 50px 40px;
+  
+  /* Logramos los bordes asimétricos de hoja curva de tu imagen */
+  border-radius: 65px 15px 75px 15px; 
+  
+  /* Borde delgado brillante para el efecto de cristalización */
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  
+  /* El secreto del Glassmorphism: desenfoca lo que está detrás de la tarjeta */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  max-width: 420px;
+  width: 90%;
+  position: relative;
+  z-index: 2; /* Se posiciona sobre las estrellas artificiales */
+}
+
+/* Icono o avatar decorativo superior en el login */
+.auth-card::before {
+  content: '💬'; 
+  font-size: 32px;
+  display: block;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 8px #38bdf8);
+}
+
+.auth-card h2 {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.auth-card p {
+  color: #94a3b8; /* Gris azulado suave */
+  margin-bottom: 30px;
+  font-size: 14px;
+}
+
+/* Campos de entrada (Cajas oscurecidas translúcidas) */
+.auth-card input {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px; /* Bordes redondeados tipo píldora como tus inputs de E-mail/Senha */
+  margin-bottom: 20px;
+  font-size: 15px;
+  color: #ffffff;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+/* Efecto cuando el usuario hace clic para escribir */
+.auth-card input:focus {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+/* Estilo para el placeholder (el texto guía de fondo) */
+.auth-card input::placeholder {
+  color: #64748b;
+}
+
+/* Botón "Entrar" (Estilo caja sólida compacta alineada a la derecha de la tarjeta) */
+.auth-card button {
+  display: block;
+  width: auto;
+  min-width: 100px;
+  padding: 10px 24px;
+  background-color: #1e293b; /* Fondo azul oscuro/grisáceo */
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: normal;
+  cursor: pointer;
+  margin-left: auto; /* Empuja el botón automáticamente hacia la derecha */
+  transition: all 0.2s ease;
+}
+
+.auth-card button:hover {
+  background-color: #334155;
+  border-color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+}
+
+.chat-screen {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  background-color: #ffffff;
+}
+
+.sidebar {
+  width: 260px;
+  background-color: #2f3136;
+  color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 20px 20px;
+  border-bottom: 1px solid #202225;
+  margin-bottom: 20px;
+}
+
+.user-profile .avatar {
+  font-size: 24px;
+}
+
+.sidebar h3 {
+  padding: 0 20px;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #8e9297;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.room-item {
+  padding: 10px 20px;
+  list-style: none;
+  cursor: pointer;
+  color: #b9bbbe;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.room-item:hover {
+  background-color: #34373c;
+  color: #dcddde;
+}
+
+.room-item.active {
+  background-color: #393c43;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #36393f;
+}
+
+.chat-header {
+  height: 60px;
+  background-color: #36393f;
+  border-bottom: 1px solid #202225;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  color: #ffffff;
+}
+
+.search-box input {
+  background-color: #202225;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  color: #ffffff;
+  width: 220px;
+}
+
+.messages-container {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.message-node {
+  color: #dcddde;
+  max-width: 80%;
+}
+
+.message-node .msg-meta {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.message-node .msg-user {
+  font-weight: bold;
+  color: #ffffff;
+  margin-right: 8px;
+}
+
+.message-node .msg-time {
+  color: #72767d;
+}
+
+.message-node .msg-body {
+  background-color: #40444b;
+  padding: 10px 14px;
+  border-radius: 8px;
+  display: inline-block;
+  word-break: break-word;
+}
+
+.message-node.system-notification {
+  align-self: center;
+  text-align: center;
+}
+
+.message-node.system-notification .msg-body {
+  background-color: transparent;
+  color: #72767d;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.chat-attachment {
+  display: block;
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: 4px;
+  margin-top: 5px;
+}
+
+.file-link {
+  color: #00b0f4;
+  text-decoration: underline;
+  display: block;
+  margin-top: 5px;
+}
+
+.chat-footer {
+  padding: 0 20px 20px 20px;
+  position: relative;
+}
+
+#message-form {
+  display: flex;
+  background-color: #40444b;
+  border-radius: 8px;
+  padding: 10px;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #b9bbbe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-btn:hover {
+  color: #ffffff;
+}
+
+#message-input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #dcddde;
+  font-size: 16px;
+  outline: none;
+}
+
+#send-btn {
+  background-color: #5865f2;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#send-btn:hover {
+  background-color: #4752c4;
+}
+
+#emoji-picker-container {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  z-index: 100;
+}
