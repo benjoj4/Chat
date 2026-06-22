@@ -1,11 +1,9 @@
-
-//IMPORTAR EMOJIS
 import { createPicker } from "https://unpkg.com/picmo@5.1.0/dist/index.js";
-// Importar los SDKs de Firebase desde el CDN (Formato compatible con navegadores directos)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, push, onChildAdded, off, query, limitToLast } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// 2. Tu configuración real de Firebase
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getDatabase, ref, push, onChildAdded, off, query, limitToLast, set, onDisconnect, onValue, remove} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+// config Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCunS8tcfLmaBRT1Up_i0L6T_0gp2Bwiuo",
   authDomain: "benjachat-9dcdc.firebaseapp.com",
@@ -40,6 +38,7 @@ const notificationSound = document.getElementById('notification-sound');
 let nickname = '';
 let activeRoom = 'general';
 let currentRoomRef = null; // Guardará la referencia activa de Firebase
+let miRefEscritura = null; // Guardará la referencia de escritura del usuario actual
 
 // Evento de Login de usuario
 authForm.addEventListener('submit', function (e) {
@@ -49,6 +48,9 @@ authForm.addEventListener('submit', function (e) {
     currentUserLabel.textContent = nickname;
     authContainer.classList.add('hidden');
     chatContainer.classList.remove('hidden');
+
+    // Activar los nuevos sistemas en tiempo real
+    iniciarSistemaPresenciaYEscritura();
     
     // Conectar a la sala inicial en Firebase
     cambiarDeSala(activeRoom);
@@ -62,6 +64,11 @@ function cambiarDeSala(nuevaSala) {
     off(currentRoomRef);
   }
 
+  // Si estábamos marcados como escribiendo en la sala anterior, limpiamos ese estado
+  if (miRefEscritura) {
+    remove(miRefEscritura);
+  }
+
   activeRoom = nuevaSala;
   currentRoomTitle.textContent = `# ${nuevaSala.charAt(0).toUpperCase() + nuevaSala.slice(1)}`;
   
@@ -71,14 +78,23 @@ function cambiarDeSala(nuevaSala) {
   // Apuntar al nodo específico de esta sala en Firebase: 'messages/nombre_sala'
   currentRoomRef = ref(db, `messages/${activeRoom}`);
 
+  // Actualizar la referencia de escritura para rastrear la sala correcta si el usuario ya inició sesión
+  if (nickname) {
+    miRefEscritura = ref(db, `typing/${activeRoom}/${nickname}`);
+  }
+
   // Traer los últimos 50 mensajes de Firebase y escuchar nuevos en tiempo real
   const lasMessagesQuery = query(currentRoomRef, limitToLast(50));
 
   onChildAdded(lasMessagesQuery, (snapshot) => {
     const msg = snapshot.val();
     renderizarUnMensaje(msg);
-  });
+  }); // 👈 Corregido: Ahora se cierra correctamente el onChildAdded
 
+  // Monitorear quién escribe en la nueva sala
+  escucharEscrituraEnSala(nuevaSala);
+
+  // Agregar mensaje del sistema localmente indicando el cambio
   agregarMensajeSistema(`Te has unido a la sala: # ${nuevaSala}`);
 }
 
@@ -144,9 +160,12 @@ function agregarMensajeSistema(texto) {
   });
 }
 
-// Enviar Mensaje a Firebase
+// ========================================================
+// ESCUCHADOR ÚNICO DE ENVÍO DE MENSAJES (100% UNIFICADO)
+// ========================================================
 messageForm.addEventListener('submit', function (e) {
-  e.preventDefault();
+  e.preventDefault(); // 👈 ¡Frenado total! Esto evita la recarga que te mandaba al login
+  
   const texto = messageInput.value.trim();
   const archivo = fileInput.files[0];
 
@@ -162,7 +181,6 @@ messageForm.addEventListener('submit', function (e) {
     timestamp: Date.now()
   };
 
-  // Mantenemos tu lógica de "Blob URL temporal" local para los adjuntos por ahora
   if (archivo) {
     const fakeUrl = URL.createObjectURL(archivo);
     nuevoMensaje.file = {
@@ -172,12 +190,17 @@ messageForm.addEventListener('submit', function (e) {
     };
   }
 
-  // Guardar directo en Firebase (Sustituye por completo al socket.emit antiguo)
+  // Guardar directo en Firebase 
   push(currentRoomRef, nuevoMensaje);
 
+  // Limpiar los inputs de la interfaz de forma limpia
   messageInput.value = '';
   fileInput.value = '';
   emojiContainer.classList.add('hidden');
+
+  // Limpiar los estados de escritura inmediatamente al enviar el mensaje
+  if (typingTimeout) clearTimeout(typingTimeout);
+  if (miRefEscritura) remove(miRefEscritura);
 });
 
 // Buscador reactivo
@@ -200,27 +223,100 @@ if (Notification.permission !== 'granted' && Notification.permission !== 'denied
 }
 
 // Lógica de Emojis 
-
-// Creamos el selector utilizando directamente la función importada arriba
 const picker = createPicker({
   rootElement: emojiContainer
 });
 
-// Al hacer clic en un emoji, se añade al input de texto
 picker.addEventListener('emoji', event => {
   messageInput.value += event.emoji;
-  messageInput.focus(); // Mantiene el foco para que sigas escribiendo
+  messageInput.focus(); 
 });
 
-// Mostrar / Ocultar el contenedor de emojis al presionar el botón de la carita
 emojiBtn.addEventListener('click', function (e) {
   e.stopPropagation();
   emojiContainer.classList.toggle('hidden');
 });
 
-// Cerrar el selector de emojis si el usuario hace clic fuera de él
 document.addEventListener('click', function (e) {
   if (!emojiContainer.contains(e.target) && e.target !== emojiBtn) {
     emojiContainer.classList.add('hidden');
   }
 });
+
+// ========================================================
+//  LOGICA EXTRA: USUARIOS EN LÍNEA Y "ESCRIBIENDO..."
+// ========================================================
+const usersListContainer = document.getElementById('users-list');
+const typingIndicator = document.getElementById('typing-indicator');
+let typingTimeout = null;
+
+function iniciarSistemaPresenciaYEscritura() {
+  // 1. REGISTRAR QUE ESTAMOS EN LÍNEA
+  const miRefPresencia = ref(db, `presence/${nickname}`);
+  set(miRefPresencia, { status: "online" });
+  
+  // Si el usuario cierra la pestaña, se borra automáticamente de la lista
+  onDisconnect(miRefPresencia).remove();
+
+  // 2. ESCUCHAR A TODOS LOS USUARIOS CONECTADOS
+  const listaPresenciaRef = ref(db, 'presence');
+  onValue(listaPresenciaRef, (snapshot) => {
+    usersListContainer.innerHTML = ''; 
+    
+    snapshot.forEach((childSnapshot) => {
+      const nombreUsuarioConectado = childSnapshot.key;
+      
+      const li = document.createElement('li');
+      li.className = 'user-item';
+      li.textContent = nombreUsuarioConectado;
+      
+      usersListContainer.appendChild(li);
+    });
+  });
+
+  // Inicializar la referencia exacta de escritura para la sala activa
+  miRefEscritura = ref(db, `typing/${activeRoom}/${nickname}`);
+
+  // 3. ACTUALIZAR NUESTRO ESTADO EN FIREBASE AL TECLEAR
+  messageInput.addEventListener('input', () => {
+    if (!miRefEscritura) return;
+
+    set(miRefEscritura, true);
+    clearTimeout(typingTimeout);
+
+    // Si pasan 2 segundos sin teclear, se borra el indicador
+    typingTimeout = setTimeout(() => {
+      if (miRefEscritura) remove(miRefEscritura);
+    }, 2000);
+  });
+}
+
+// 4. ESCUCHAR QUIÉN ESTÁ ESCRIBIENDO EN LA SALA ACTUAL
+let salaEscrituraRef = null;
+
+function escucharEscrituraEnSala(sala) {
+  if (salaEscrituraRef) {
+    off(salaEscrituraRef);
+  }
+
+  salaEscrituraRef = ref(db, `typing/${sala}`);
+  
+  onValue(salaEscrituraRef, (snapshot) => {
+    const escritores = [];
+    
+    snapshot.forEach((childSnapshot) => {
+      const usuarioEscribiendo = childSnapshot.key;
+      if (usuarioEscribiendo !== nickname) {
+        escritores.push(usuarioEscribiendo);
+      }
+    });
+
+    if (escritores.length === 1) {
+      typingIndicator.textContent = `${escritores[0]} está escribiendo...`;
+    } else if (escritores.length > 1) {
+      typingIndicator.textContent = `Varios usuarios están escribiendo...`;
+    } else {
+      typingIndicator.textContent = ''; 
+    }
+  });
+}

@@ -45,17 +45,14 @@ body {
 }
 
 .auth-card {
-  /* Fondo semi-transparente azulado (Efecto cristal) */
+
   background: rgba(15, 23, 42, 0.45);
   padding: 50px 40px;
   
-  /* Logramos los bordes asimétricos de hoja curva de tu imagen */
   border-radius: 65px 15px 75px 15px; 
   
-  /* Borde delgado brillante para el efecto de cristalización */
   border: 1.5px solid rgba(255, 255, 255, 0.25);
   
-  /* El secreto del Glassmorphism: desenfoca lo que está detrás de la tarjeta */
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   
@@ -64,10 +61,9 @@ body {
   max-width: 420px;
   width: 90%;
   position: relative;
-  z-index: 2; /* Se posiciona sobre las estrellas artificiales */
+  z-index: 2; 
 }
 
-/* Icono o avatar decorativo superior en el login */
 .auth-card::before {
   content: '💬'; 
   font-size: 32px;
@@ -85,12 +81,12 @@ body {
 }
 
 .auth-card p {
-  color: #94a3b8; /* Gris azulado suave */
+  color: #94a3b8; 
   margin-bottom: 30px;
   font-size: 14px;
 }
 
-/* Campos de entrada (Cajas oscurecidas translúcidas) */
+
 .auth-card input {
   width: 100%;
   padding: 14px 16px;
@@ -344,4 +340,35 @@ body {
   bottom: 80px;
   left: 20px;
   z-index: 100;
+}
+
+#users-list {
+  padding: 0 20px;
+  list-style: none;
+}
+
+.user-item {
+  padding: 6px 0;
+  font-size: 14px;
+  color: #b9bbbe;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-item::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background-color: #3ba55d;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.typing-box {
+ padding: 0 20px 5px 20px;
+ font-size: 13px;
+ color: #b9bbbe;
+ font-style: italic;
+ height: 20px;
 }
