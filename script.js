@@ -86,7 +86,9 @@ const EMOJIS = [
 ];
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-const INLINE_FALLBACK_MAX_BYTES = 1 * 1024 * 1024;
+const INLINE_FALLBACK_MAX_BYTES = 2 * 1024 * 1024;
+const IMAGE_FALLBACK_MAX_DIMENSION = 1600;
+const TYPING_STALE_MS = 7000;
 
 let nickname = "";
 let activeRoom = "general";
@@ -378,10 +380,71 @@ function fileToDataUrl(file) {
   });
 }
 
+function getDataUrlPayloadSize(dataUrl) {
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) return dataUrl.length;
+  const payload = dataUrl.slice(commaIndex + 1);
+  return Math.floor((payload.length * 3) / 4);
+}
+
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("No se pudo procesar la imagen para fallback."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function compressImageForInlineFallback(file, maxBytes) {
+  const image = await loadImageFromFile(file);
+  const ratio = Math.min(
+    1,
+    IMAGE_FALLBACK_MAX_DIMENSION / Math.max(image.width || 1, image.height || 1)
+  );
+
+  const width = Math.max(1, Math.round((image.width || 1) * ratio));
+  const height = Math.max(1, Math.round((image.height || 1) * ratio));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("No se pudo inicializar el compresor de imagen.");
+  }
+  ctx.drawImage(image, 0, 0, width, height);
+
+  let bestResult = null;
+  for (let quality = 0.9; quality >= 0.3; quality -= 0.1) {
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    const payloadSize = getDataUrlPayloadSize(dataUrl);
+    bestResult = {
+      dataUrl,
+      payloadSize,
+      contentType: "image/jpeg"
+    };
+
+    if (payloadSize <= maxBytes) {
+      return bestResult;
+    }
+  }
+
+  return bestResult;
+}
+
 function getFriendlyUploadError(error) {
   const code = error?.code || "";
   if (code.includes("storage/unauthorized") || code.includes("storage/permission-denied")) {
-    return "Storage rechazó la subida (permisos/reglas). Se intentará fallback automático para archivos pequeños.";
+    return "Storage rechazó la subida (permisos/reglas). Se intentará fallback automático.";
   }
   if (code.includes("storage/canceled")) {
     return "La subida fue cancelada.";
@@ -390,6 +453,50 @@ function getFriendlyUploadError(error) {
     return "La subida agotó reintentos. Verifica tu conexión.";
   }
   return error?.message || "No se pudo subir el archivo.";
+}
+
+async function buildInlineFallbackAttachment(file, uploadError) {
+  const baseError = getFriendlyUploadError(uploadError);
+
+  if ((file.type || "").startsWith("image/")) {
+    const compressed = await compressImageForInlineFallback(file, INLINE_FALLBACK_MAX_BYTES);
+
+    if (!compressed || compressed.payloadSize > INLINE_FALLBACK_MAX_BYTES) {
+      throw new Error(
+        `${baseError} La imagen es demasiado grande incluso comprimida. Intenta con una imagen más liviana.`
+      );
+    }
+
+    return {
+      name: file.name,
+      type: compressed.contentType,
+      size: compressed.payloadSize,
+      url: compressed.dataUrl,
+      inlineFallback: true
+    };
+  }
+
+  if (file.size > INLINE_FALLBACK_MAX_BYTES) {
+    throw new Error(
+      `${baseError} El fallback solo soporta archivos no imagen de hasta ${formatFileSize(INLINE_FALLBACK_MAX_BYTES)}.`
+    );
+  }
+
+  const dataUrl = await fileToDataUrl(file);
+  const payloadSize = getDataUrlPayloadSize(dataUrl);
+  if (payloadSize > INLINE_FALLBACK_MAX_BYTES) {
+    throw new Error(
+      `${baseError} El archivo supera el límite del fallback (${formatFileSize(INLINE_FALLBACK_MAX_BYTES)}).`
+    );
+  }
+
+  return {
+    name: file.name,
+    type: file.type || "application/octet-stream",
+    size: payloadSize,
+    url: dataUrl,
+    inlineFallback: true
+  };
 }
 
 function resetUploadPreview({ clearInput = true } = {}) {
@@ -508,22 +615,8 @@ messageForm.addEventListener("submit", async (e) => {
         };
       } catch (uploadError) {
         console.warn("Storage upload failed, using inline fallback when possible:", uploadError);
-
-        if (archivo.size > INLINE_FALLBACK_MAX_BYTES) {
-          throw new Error(
-            `${getFriendlyUploadError(uploadError)} Si el problema persiste, sube un archivo más pequeño (<=1MB) o revisa reglas de Firebase Storage.`
-          );
-        }
-
         actualizarProgresoSubida(100, true);
-        const dataUrl = await fileToDataUrl(archivo);
-        nuevoMensaje.file = {
-          name: archivo.name,
-          type: archivo.type || "application/octet-stream",
-          size: archivo.size,
-          url: dataUrl,
-          inlineFallback: true
-        };
+        nuevoMensaje.file = await buildInlineFallbackAttachment(archivo, uploadError);
       }
     }
 
@@ -639,6 +732,13 @@ function actualizarRefEscrituraPropia() {
 messageInput.addEventListener("input", () => {
   if (!miRefEscritura || !currentUser) return;
 
+  const sigueEscribiendo = messageInput.value.trim().length > 0 || fileInput.files.length > 0;
+  if (!sigueEscribiendo) {
+    clearTimeout(typingTimeout);
+    if (miRefEscritura) remove(miRefEscritura).catch(() => {});
+    return;
+  }
+
   set(miRefEscritura, {
     name: nickname,
     at: Date.now()
@@ -655,10 +755,20 @@ function escucharEscrituraEnSala(sala) {
 
   salaEscrituraHandler = (snapshot) => {
     const escritores = [];
+    const ahora = Date.now();
 
     snapshot.forEach((childSnapshot) => {
-      if (childSnapshot.key === currentUser?.uid) return;
-      const escritorNombre = childSnapshot.val()?.name || "Usuario";
+      const uidEscribiendo = childSnapshot.key;
+      const typingData = childSnapshot.val() || {};
+      const lastTypingAt = Number(typingData.at) || 0;
+
+      if (!lastTypingAt || ahora - lastTypingAt > TYPING_STALE_MS) {
+        remove(ref(db, `typing/${sala}/${uidEscribiendo}`)).catch(() => {});
+        return;
+      }
+
+      if (uidEscribiendo === currentUser?.uid) return;
+      const escritorNombre = typingData.name || "Usuario";
       escritores.push(escritorNombre);
     });
 
