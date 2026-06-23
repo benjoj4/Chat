@@ -388,24 +388,21 @@ function getDataUrlPayloadSize(dataUrl) {
   return Math.floor((payload.length * 3) / 4);
 }
 
-function loadImageFromFile(file) {
+function loadImageFromDataUrl(dataUrl) {
   return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
     const image = new Image();
     image.onload = () => {
-      URL.revokeObjectURL(objectUrl);
       resolve(image);
     };
     image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
       reject(new Error("No se pudo procesar la imagen para fallback."));
     };
-    image.src = objectUrl;
+    image.src = dataUrl;
   });
 }
 
-async function compressImageForInlineFallback(file, maxBytes) {
-  const image = await loadImageFromFile(file);
+async function compressImageForInlineFallback(imageDataUrl, maxBytes) {
+  const image = await loadImageFromDataUrl(imageDataUrl);
   const ratio = Math.min(
     1,
     IMAGE_FALLBACK_MAX_DIMENSION / Math.max(image.width || 1, image.height || 1)
@@ -463,7 +460,24 @@ async function buildInlineFallbackAttachment(file, uploadError) {
   const baseError = getFriendlyUploadError(uploadError);
 
   if ((file.type || "").startsWith("image/")) {
-    const compressed = await compressImageForInlineFallback(file, INLINE_FALLBACK_MAX_BYTES);
+    const originalDataUrl = await fileToDataUrl(file);
+    const originalPayloadSize = getDataUrlPayloadSize(originalDataUrl);
+
+    // For small images, skip canvas processing and send directly.
+    if (originalPayloadSize <= INLINE_FALLBACK_MAX_BYTES) {
+      return {
+        name: file.name,
+        type: file.type || "image/*",
+        size: originalPayloadSize,
+        url: originalDataUrl,
+        inlineFallback: true
+      };
+    }
+
+    const compressed = await compressImageForInlineFallback(
+      originalDataUrl,
+      INLINE_FALLBACK_MAX_BYTES
+    );
 
     if (!compressed || compressed.payloadSize > INLINE_FALLBACK_MAX_BYTES) {
       throw new Error(
