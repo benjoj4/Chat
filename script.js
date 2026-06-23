@@ -86,6 +86,7 @@ const EMOJIS = [
 ];
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const INLINE_FALLBACK_MAX_BYTES = 1 * 1024 * 1024;
 
 let nickname = "";
 let activeRoom = "general";
@@ -340,6 +341,7 @@ function crearNodoAdjunto(fileData) {
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.className = "file-link";
+  link.download = fileData.name || "adjunto";
   link.textContent = `📎 Descargar archivo (${fileData.name || "adjunto"})`;
   return link;
 }
@@ -365,6 +367,29 @@ function formatFileSize(bytes) {
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   const mb = kb / 1024;
   return `${mb.toFixed(1)} MB`;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo para fallback."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getFriendlyUploadError(error) {
+  const code = error?.code || "";
+  if (code.includes("storage/unauthorized") || code.includes("storage/permission-denied")) {
+    return "Storage rechazó la subida (permisos/reglas). Se intentará fallback automático para archivos pequeños.";
+  }
+  if (code.includes("storage/canceled")) {
+    return "La subida fue cancelada.";
+  }
+  if (code.includes("storage/retry-limit-exceeded")) {
+    return "La subida agotó reintentos. Verifica tu conexión.";
+  }
+  return error?.message || "No se pudo subir el archivo.";
 }
 
 function resetUploadPreview({ clearInput = true } = {}) {
@@ -456,31 +481,50 @@ messageForm.addEventListener("submit", async (e) => {
         throw new Error("El archivo supera el límite de 10MB.");
       }
 
-      const filePath = `chat_uploads/${activeRoom}/${currentUser.uid}/${Date.now()}-${archivo.name.replace(/[^\w.-]/g, "_")}`;
-      const fileStorageRef = storageRef(storage, filePath);
-      const uploadTask = uploadBytesResumable(fileStorageRef, archivo);
+      try {
+        const filePath = `chat_uploads/${activeRoom}/${currentUser.uid}/${Date.now()}-${archivo.name.replace(/[^\w.-]/g, "_")}`;
+        const fileStorageRef = storageRef(storage, filePath);
+        const uploadTask = uploadBytesResumable(fileStorageRef, archivo);
 
-      const snapshot = await new Promise((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          (taskSnapshot) => {
-            const progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
-            actualizarProgresoSubida(progress, true);
-          },
-          reject,
-          () => resolve(uploadTask.snapshot)
-        );
-      });
-      actualizarProgresoSubida(100, true);
+        const snapshot = await new Promise((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (taskSnapshot) => {
+              const progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
+              actualizarProgresoSubida(progress, true);
+            },
+            reject,
+            () => resolve(uploadTask.snapshot)
+          );
+        });
+        actualizarProgresoSubida(100, true);
 
-      const downloadUrl = await getDownloadURL(snapshot.ref);
+        const downloadUrl = await getDownloadURL(snapshot.ref);
+        nuevoMensaje.file = {
+          name: archivo.name,
+          type: archivo.type || "application/octet-stream",
+          size: archivo.size,
+          url: downloadUrl
+        };
+      } catch (uploadError) {
+        console.warn("Storage upload failed, using inline fallback when possible:", uploadError);
 
-      nuevoMensaje.file = {
-        name: archivo.name,
-        type: archivo.type || "application/octet-stream",
-        size: archivo.size,
-        url: downloadUrl
-      };
+        if (archivo.size > INLINE_FALLBACK_MAX_BYTES) {
+          throw new Error(
+            `${getFriendlyUploadError(uploadError)} Si el problema persiste, sube un archivo más pequeño (<=1MB) o revisa reglas de Firebase Storage.`
+          );
+        }
+
+        actualizarProgresoSubida(100, true);
+        const dataUrl = await fileToDataUrl(archivo);
+        nuevoMensaje.file = {
+          name: archivo.name,
+          type: archivo.type || "application/octet-stream",
+          size: archivo.size,
+          url: dataUrl,
+          inlineFallback: true
+        };
+      }
     }
 
     await push(currentRoomRef, nuevoMensaje);
