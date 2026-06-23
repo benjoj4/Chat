@@ -78,6 +78,20 @@
           <input type="text" id="message-input" placeholder="Escribe un mensaje aquí..." autocomplete="off">
           <button type="submit" id="send-btn">Enviar</button>
         </form>
+        <div id="upload-preview" class="upload-preview hidden">
+          <div class="upload-preview-header">
+            <span id="upload-file-name"></span>
+            <button type="button" id="clear-file-btn" class="clear-file-btn" aria-label="Quitar archivo">✕</button>
+          </div>
+          <img id="upload-image-preview" class="upload-image-preview hidden" alt="Vista previa de imagen">
+          <div id="upload-file-meta" class="upload-file-meta"></div>
+          <div id="upload-progress" class="upload-progress hidden">
+            <div class="upload-progress-track">
+              <div id="upload-progress-fill" class="upload-progress-fill"></div>
+            </div>
+            <span id="upload-progress-text">0%</span>
+          </div>
+        </div>
         <div id="emoji-picker-container" class="hidden"></div>
       </footer>
     </main>

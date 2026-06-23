@@ -24,7 +24,7 @@ import {
 import {
   getStorage,
   ref as storageRef,
-  uploadBytes,
+  uploadBytesResumable,
   getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
@@ -70,6 +70,14 @@ const notificationSound = document.getElementById("notification-sound");
 const usersListContainer = document.getElementById("users-list");
 const typingIndicator = document.getElementById("typing-indicator");
 const sendBtn = document.getElementById("send-btn");
+const uploadPreview = document.getElementById("upload-preview");
+const uploadFileName = document.getElementById("upload-file-name");
+const uploadImagePreview = document.getElementById("upload-image-preview");
+const uploadFileMeta = document.getElementById("upload-file-meta");
+const clearFileBtn = document.getElementById("clear-file-btn");
+const uploadProgress = document.getElementById("upload-progress");
+const uploadProgressFill = document.getElementById("upload-progress-fill");
+const uploadProgressText = document.getElementById("upload-progress-text");
 
 const EMOJIS = [
   "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "🤩",
@@ -94,6 +102,7 @@ let presenceListRef = null;
 let presenceHandler = null;
 let miRefEscritura = null;
 let roomMessagesCache = [];
+let previewObjectUrl = null;
 
 toggleAuthMode.addEventListener("click", () => {
   isLoginMode = !isLoginMode;
@@ -206,6 +215,7 @@ function limpiarEstadoChat() {
   usersListContainer.innerHTML = "";
   typingIndicator.textContent = "";
   messagesWindow.innerHTML = "";
+  resetUploadPreview();
 }
 
 function cambiarDeSala(nuevaSala) {
@@ -349,6 +359,75 @@ function agregarMensajeSistema(texto) {
   });
 }
 
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+function resetUploadPreview({ clearInput = true } = {}) {
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+
+  uploadPreview.classList.add("hidden");
+  uploadImagePreview.classList.add("hidden");
+  uploadImagePreview.removeAttribute("src");
+  uploadFileName.textContent = "";
+  uploadFileMeta.textContent = "";
+  actualizarProgresoSubida(0, false);
+
+  if (clearInput) {
+    fileInput.value = "";
+  }
+}
+
+function mostrarPreviewArchivo(file) {
+  uploadPreview.classList.remove("hidden");
+  uploadFileName.textContent = file.name;
+  uploadFileMeta.textContent = `${formatFileSize(file.size)} · ${file.type || "Archivo"}`;
+
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = null;
+  }
+
+  if ((file.type || "").startsWith("image/")) {
+    previewObjectUrl = URL.createObjectURL(file);
+    uploadImagePreview.src = previewObjectUrl;
+    uploadImagePreview.classList.remove("hidden");
+  } else {
+    uploadImagePreview.classList.add("hidden");
+    uploadImagePreview.removeAttribute("src");
+  }
+
+  actualizarProgresoSubida(0, false);
+}
+
+function actualizarProgresoSubida(percent, visible = true) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  uploadProgressFill.style.width = `${clamped}%`;
+  uploadProgressText.textContent = `${Math.round(clamped)}%`;
+  uploadProgress.classList.toggle("hidden", !visible);
+}
+
+fileInput.addEventListener("change", () => {
+  const archivo = fileInput.files[0];
+  if (!archivo) {
+    resetUploadPreview({ clearInput: false });
+    return;
+  }
+  mostrarPreviewArchivo(archivo);
+});
+
+clearFileBtn.addEventListener("click", () => {
+  if (clearFileBtn.disabled) return;
+  resetUploadPreview();
+});
+
 messageForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -359,6 +438,8 @@ messageForm.addEventListener("submit", async (e) => {
 
   try {
     sendBtn.disabled = true;
+    fileInput.disabled = true;
+    clearFileBtn.disabled = true;
     sendBtn.textContent = archivo ? "Subiendo..." : "Enviando...";
 
     const ahora = new Date();
@@ -377,8 +458,22 @@ messageForm.addEventListener("submit", async (e) => {
 
       const filePath = `chat_uploads/${activeRoom}/${currentUser.uid}/${Date.now()}-${archivo.name.replace(/[^\w.-]/g, "_")}`;
       const fileStorageRef = storageRef(storage, filePath);
-      await uploadBytes(fileStorageRef, archivo);
-      const downloadUrl = await getDownloadURL(fileStorageRef);
+      const uploadTask = uploadBytesResumable(fileStorageRef, archivo);
+
+      const snapshot = await new Promise((resolve, reject) => {
+        uploadTask.on(
+          "state_changed",
+          (taskSnapshot) => {
+            const progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
+            actualizarProgresoSubida(progress, true);
+          },
+          reject,
+          () => resolve(uploadTask.snapshot)
+        );
+      });
+      actualizarProgresoSubida(100, true);
+
+      const downloadUrl = await getDownloadURL(snapshot.ref);
 
       nuevoMensaje.file = {
         name: archivo.name,
@@ -390,8 +485,8 @@ messageForm.addEventListener("submit", async (e) => {
 
     await push(currentRoomRef, nuevoMensaje);
     messageInput.value = "";
-    fileInput.value = "";
     emojiContainer.classList.add("hidden");
+    resetUploadPreview();
 
     if (typingTimeout) clearTimeout(typingTimeout);
     if (miRefEscritura) remove(miRefEscritura).catch(() => {});
@@ -400,6 +495,8 @@ messageForm.addEventListener("submit", async (e) => {
     alert(error.message || "No fue posible enviar el mensaje/archivo.");
   } finally {
     sendBtn.disabled = false;
+    fileInput.disabled = false;
+    clearFileBtn.disabled = false;
     sendBtn.textContent = "Enviar";
   }
 });
