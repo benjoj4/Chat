@@ -89,6 +89,7 @@ const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const INLINE_FALLBACK_MAX_BYTES = 2 * 1024 * 1024;
 const IMAGE_FALLBACK_MAX_DIMENSION = 1600;
 const TYPING_STALE_MS = 7000;
+const STORAGE_STALL_TIMEOUT_MS = 10000;
 
 let nickname = "";
 let activeRoom = "general";
@@ -105,7 +106,7 @@ let presenceListRef = null;
 let presenceHandler = null;
 let miRefEscritura = null;
 let roomMessagesCache = [];
-let previewObjectUrl = null;
+let previewRenderId = 0;
 
 toggleAuthMode.addEventListener("click", () => {
   isLoginMode = !isLoginMode;
@@ -446,6 +447,9 @@ function getFriendlyUploadError(error) {
   if (code.includes("storage/unauthorized") || code.includes("storage/permission-denied")) {
     return "Storage rechazó la subida (permisos/reglas). Se intentará fallback automático.";
   }
+  if (code.includes("storage/stalled")) {
+    return "La subida se quedó sin progreso y se canceló automáticamente. Se intentará fallback.";
+  }
   if (code.includes("storage/canceled")) {
     return "La subida fue cancelada.";
   }
@@ -499,11 +503,53 @@ async function buildInlineFallbackAttachment(file, uploadError) {
   };
 }
 
+function uploadWithProgressAndStallTimeout(fileStorageRef, file) {
+  const uploadTask = uploadBytesResumable(fileStorageRef, file);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let stallTimer = null;
+
+    const clearStallTimer = () => {
+      if (stallTimer) {
+        clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+    };
+
+    const settle = (handler, value) => {
+      if (settled) return;
+      settled = true;
+      clearStallTimer();
+      handler(value);
+    };
+
+    const restartStallTimer = () => {
+      clearStallTimer();
+      stallTimer = setTimeout(() => {
+        uploadTask.cancel();
+        const timeoutError = new Error("La subida se quedó sin progreso.");
+        timeoutError.code = "storage/stalled";
+        settle(reject, timeoutError);
+      }, STORAGE_STALL_TIMEOUT_MS);
+    };
+
+    restartStallTimer();
+    uploadTask.on(
+      "state_changed",
+      (taskSnapshot) => {
+        restartStallTimer();
+        const progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
+        actualizarProgresoSubida(progress, true);
+      },
+      (error) => settle(reject, error),
+      () => settle(resolve, uploadTask.snapshot)
+    );
+  });
+}
+
 function resetUploadPreview({ clearInput = true } = {}) {
-  if (previewObjectUrl) {
-    URL.revokeObjectURL(previewObjectUrl);
-    previewObjectUrl = null;
-  }
+  previewRenderId += 1;
 
   uploadPreview.classList.add("hidden");
   uploadImagePreview.classList.add("hidden");
@@ -517,20 +563,29 @@ function resetUploadPreview({ clearInput = true } = {}) {
   }
 }
 
-function mostrarPreviewArchivo(file) {
+async function mostrarPreviewArchivo(file) {
+  const currentRender = ++previewRenderId;
   uploadPreview.classList.remove("hidden");
   uploadFileName.textContent = file.name;
   uploadFileMeta.textContent = `${formatFileSize(file.size)} · ${file.type || "Archivo"}`;
 
-  if (previewObjectUrl) {
-    URL.revokeObjectURL(previewObjectUrl);
-    previewObjectUrl = null;
-  }
-
   if ((file.type || "").startsWith("image/")) {
-    previewObjectUrl = URL.createObjectURL(file);
-    uploadImagePreview.src = previewObjectUrl;
     uploadImagePreview.classList.remove("hidden");
+    uploadImagePreview.removeAttribute("src");
+    uploadImagePreview.alt = "Cargando vista previa...";
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      if (currentRender !== previewRenderId) return;
+      uploadImagePreview.src = dataUrl;
+      uploadImagePreview.alt = "Vista previa de imagen";
+    } catch (previewError) {
+      console.warn("No se pudo generar preview de la imagen:", previewError);
+      if (currentRender !== previewRenderId) return;
+      uploadImagePreview.classList.add("hidden");
+      uploadImagePreview.removeAttribute("src");
+      uploadFileMeta.textContent = `${formatFileSize(file.size)} · ${file.type || "Imagen"} · Sin preview`;
+    }
   } else {
     uploadImagePreview.classList.add("hidden");
     uploadImagePreview.removeAttribute("src");
@@ -546,13 +601,13 @@ function actualizarProgresoSubida(percent, visible = true) {
   uploadProgress.classList.toggle("hidden", !visible);
 }
 
-fileInput.addEventListener("change", () => {
+fileInput.addEventListener("change", async () => {
   const archivo = fileInput.files[0];
   if (!archivo) {
     resetUploadPreview({ clearInput: false });
     return;
   }
-  mostrarPreviewArchivo(archivo);
+  await mostrarPreviewArchivo(archivo);
 });
 
 clearFileBtn.addEventListener("click", () => {
@@ -591,19 +646,7 @@ messageForm.addEventListener("submit", async (e) => {
       try {
         const filePath = `chat_uploads/${activeRoom}/${currentUser.uid}/${Date.now()}-${archivo.name.replace(/[^\w.-]/g, "_")}`;
         const fileStorageRef = storageRef(storage, filePath);
-        const uploadTask = uploadBytesResumable(fileStorageRef, archivo);
-
-        const snapshot = await new Promise((resolve, reject) => {
-          uploadTask.on(
-            "state_changed",
-            (taskSnapshot) => {
-              const progress = (taskSnapshot.bytesTransferred / taskSnapshot.totalBytes) * 100;
-              actualizarProgresoSubida(progress, true);
-            },
-            reject,
-            () => resolve(uploadTask.snapshot)
-          );
-        });
+        const snapshot = await uploadWithProgressAndStallTimeout(fileStorageRef, archivo);
         actualizarProgresoSubida(100, true);
 
         const downloadUrl = await getDownloadURL(snapshot.ref);
