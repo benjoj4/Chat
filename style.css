@@ -372,3 +372,67 @@ body {
  font-style: italic;
  height: 20px;
 }
+
+/* Divisor flotante tipo texto sutil */
+.auth-divider {
+  margin: 18px 0;
+  font-size: 13px;
+  color: #64748b; /* Mismo color que tus placeholders */
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+/* Botón de Google acoplado a tus efectos de transparencia y foco */
+.btn-google-dark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(15, 23, 42, 0.6); /* Mismo fondo que tus inputs */
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px; /* Bordes redondeados píldora como tus campos */
+  color: #ffffff;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 20px;
+}
+
+.btn-google-dark:hover {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.btn-google-dark img {
+  width: 18px;
+  height: 18px;
+}
+
+/* Texto inferior para cambiar entre Iniciar Sesión y Registro */
+.auth-toggle-text {
+  margin-top: 15px;
+  font-size: 13.5px;
+  color: #94a3b8; /* Hereda tu paleta de textos secundarios */
+  text-align: center;
+}
+
+#toggle-auth-mode {
+  color: #38bdf8; /* Color azul celeste brillante de tu sombra del emoji */
+  cursor: pointer;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+#toggle-auth-mode:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
+}
+
+/* Forzar que el input de alias tome el 100% del ancho al aparecer */
+#nickname-group input {
+  width: 100%;
+}

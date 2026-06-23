@@ -12,12 +12,31 @@
 
   <div id="auth-container" class="auth-screen">
     <div class="auth-card">
-      <h2>Ingresar al Chat</h2>
-      <p>Introduce tu nombre de usuario para unirte a las salas</p>
+      <h2 id="auth-title">Ingresar al Chat</h2>
+      <p id="auth-subtitle">Introduce tus datos para unirte a las salas</p>
+      
       <form id="auth-form">
-        <input type="text" id="username-input" placeholder="Nombre de usuario" required minlength="3">
-        <button type="submit">Entrar</button>
+        <input type="email" id="email-input" placeholder="Correo electrónico" required>
+        
+        <input type="password" id="password-input" placeholder="Contraseña (mín. 6 caracteres)" required>
+        
+        <div id="nickname-group" class="hidden">
+          <input type="text" id="username-input" placeholder="Tu Nombre de usuario (Alias)">
+        </div>
+        
+        <button type="submit" id="btn-submit-auth">Entrar</button>
       </form>
+
+      <div class="auth-divider">o también puedes</div>
+
+      <button id="btn-google" type="button" class="btn-google-dark">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" alt="Google">
+        Continuar con Google
+      </button>
+
+      <p class="auth-toggle-text">
+        ¿No tienes cuenta? <span id="toggle-auth-mode">Regístrate aquí</span>
+      </p>
     </div>
   </div>
 

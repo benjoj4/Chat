@@ -1,9 +1,9 @@
-import { createPicker } from "https://unpkg.com/picmo@5.1.0/dist/index.js";
-
+// Importaciones de Firebase (Añadido getAuth y sus herramientas de Login)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getDatabase, ref, push, onChildAdded, off, query, limitToLast, set, onDisconnect, onValue, remove} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, updateProfile, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-// config Firebase
+// Config Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCunS8tcfLmaBRT1Up_i0L6T_0gp2Bwiuo",
   authDomain: "benjachat-9dcdc.firebaseapp.com",
@@ -14,15 +14,25 @@ const firebaseConfig = {
   appId: "1:300389095060:web:07a7494b74beb4f91b8681"
 };
 
-// Inicializar Firebase y la Base de Datos
+// Inicializar Firebase, Base de Datos y Autenticación
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 
-// Nodos del DOM (Mantienen los mismos IDs de tu HTML original)
+// Nodos del DOM (Se acoplan a tus nuevos inputs píldora)
 const authContainer = document.getElementById('auth-container');
 const chatContainer = document.getElementById('chat-container');
 const authForm = document.getElementById('auth-form');
+const emailInput = document.getElementById('email-input');
+const passwordInput = document.getElementById('password-input');
+const nicknameGroup = document.getElementById('nickname-group');
 const usernameInput = document.getElementById('username-input');
+const btnSubmitAuth = document.getElementById('btn-submit-auth');
+const btnGoogle = document.getElementById('btn-google');
+const toggleAuthMode = document.getElementById('toggle-auth-mode');
+const authTitle = document.getElementById('auth-title');
+const authSubtitle = document.getElementById('auth-subtitle');
+
 const currentUserLabel = document.getElementById('current-user');
 const roomsList = document.getElementById('rooms-list');
 const currentRoomTitle = document.getElementById('current-room-title');
@@ -37,68 +47,131 @@ const notificationSound = document.getElementById('notification-sound');
 
 let nickname = '';
 let activeRoom = 'general';
-let currentRoomRef = null; // Guardará la referencia activa de Firebase
-let miRefEscritura = null; // Guardará la referencia de escritura del usuario actual
+let currentRoomRef = null; 
+let miRefEscritura = null; 
+let isLoginMode = true; // Rastrea si la tarjeta está en modo Login o Registro
 
-// Evento de Login de usuario
+// ========================================================
+// INTERRUPTOR INTERACTIVO: LOGIN / REGISTRO
+// ========================================================
+toggleAuthMode.addEventListener('click', () => {
+  isLoginMode = !isLoginMode;
+  if (isLoginMode) {
+    authTitle.textContent = "Ingresar al Chat";
+    authSubtitle.textContent = "Introduce tus credenciales para unirte a las salas";
+    btnSubmitAuth.textContent = "Entrar";
+    nicknameGroup.classList.add('hidden');
+    usernameInput.removeAttribute('required');
+    toggleAuthMode.textContent = "Regístrate aquí";
+    document.querySelector('.auth-toggle-text').childNodes[0].textContent = "¿No tienes cuenta? ";
+  } else {
+    authTitle.textContent = "Crear Cuenta";
+    authSubtitle.textContent = "Regístrate gratis para empezar a chatear";
+    btnSubmitAuth.textContent = "Registrar";
+    nicknameGroup.classList.remove('hidden');
+    usernameInput.setAttribute('required', 'true');
+    toggleAuthMode.textContent = "Inicia sesión aquí";
+    document.querySelector('.auth-toggle-text').childNodes[0].textContent = "¿Ya tienes cuenta? ";
+  }
+});
+
+// ========================================================
+// CONTROLADOR DE AUTENTICACIÓN (CORREO / CONTRASEÑA)
+// ========================================================
 authForm.addEventListener('submit', function (e) {
   e.preventDefault();
-  nickname = usernameInput.value.trim();
-  if (nickname.length >= 3) {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value.trim();
+
+  if (isLoginMode) {
+    // Proceso de Inicio de Sesión clásico
+    signInWithEmailAndPassword(auth, email, password)
+      .catch(error => {
+        console.error(error);
+        alert("Error al iniciar sesión: Verifica tu correo o contraseña.");
+      });
+  } else {
+    // Proceso de Registro de nueva cuenta
+    const inputName = usernameInput.value.trim();
+    if (inputName.length < 3) {
+      alert("El nombre de usuario debe tener mínimo 3 caracteres.");
+      return;
+    }
+    
+    createUserWithEmailAndPassword(auth, email, password)
+      .then((userCredential) => {
+        // Guardamos el Alias (Nickname) dentro del perfil interno de Firebase
+        return updateProfile(userCredential.user, { displayName: inputName });
+      })
+      .catch(error => {
+        console.error(error);
+        alert("Error al registrarse: El correo ya existe o la clave es débil.");
+      });
+  }
+});
+
+// ========================================================
+// CONTROLADOR DE AUTENTICACIÓN CON GOOGLE
+// ========================================================
+btnGoogle.addEventListener('click', () => {
+  const provider = new GoogleAuthProvider();
+  signInWithPopup(auth, provider)
+    .catch(error => {
+      console.error(error);
+      alert("Hubo un problema al autenticar con Google.");
+    });
+});
+
+// ========================================================
+// ESCUCHADOR DE ESTADO DE AUTENTICACIÓN REAL
+// ========================================================
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    // Si el usuario entra mediante Google, extrae su nombre de Google. Si se registró por correo, extrae su alias.
+    nickname = user.displayName || user.email.split('@')[0];
+    
     currentUserLabel.textContent = nickname;
     authContainer.classList.add('hidden');
     chatContainer.classList.remove('hidden');
 
-    // Activar los nuevos sistemas en tiempo real
+    // Inicializamos el ecosistema del chat en tiempo real
     iniciarSistemaPresenciaYEscritura();
-    
-    // Conectar a la sala inicial en Firebase
     cambiarDeSala(activeRoom);
+  } else {
+    // Por si el usuario cierra sesión, limpia la pantalla
+    authContainer.classList.remove('hidden');
+    chatContainer.classList.add('hidden');
   }
 });
 
-// Cambiar de Sala conectando las referencias dinámicas de Firebase
+// ========================================================
+// LÓGICA DE SALAS Y MENSAJES (SISTEMA INTEGRADO)
+// ========================================================
 function cambiarDeSala(nuevaSala) {
-  // Si ya estábamos escuchando una sala antes, apagamos el escuchador para no duplicar mensajes
-  if (currentRoomRef) {
-    off(currentRoomRef);
-  }
-
-  // Si estábamos marcados como escribiendo en la sala anterior, limpiamos ese estado
-  if (miRefEscritura) {
-    remove(miRefEscritura);
-  }
+  if (currentRoomRef) off(currentRoomRef);
+  if (miRefEscritura) remove(miRefEscritura);
 
   activeRoom = nuevaSala;
   currentRoomTitle.textContent = `# ${nuevaSala.charAt(0).toUpperCase() + nuevaSala.slice(1)}`;
-  
-  // Limpiamos la ventana de chat para la nueva sala
   messagesWindow.innerHTML = '';
   
-  // Apuntar al nodo específico de esta sala en Firebase: 'messages/nombre_sala'
   currentRoomRef = ref(db, `messages/${activeRoom}`);
 
-  // Actualizar la referencia de escritura para rastrear la sala correcta si el usuario ya inició sesión
   if (nickname) {
     miRefEscritura = ref(db, `typing/${activeRoom}/${nickname}`);
   }
 
-  // Traer los últimos 50 mensajes de Firebase y escuchar nuevos en tiempo real
   const lasMessagesQuery = query(currentRoomRef, limitToLast(50));
 
   onChildAdded(lasMessagesQuery, (snapshot) => {
     const msg = snapshot.val();
     renderizarUnMensaje(msg);
-  }); // 👈 Corregido: Ahora se cierra correctamente el onChildAdded
+  });
 
-  // Monitorear quién escribe en la nueva sala
   escucharEscrituraEnSala(nuevaSala);
-
-  // Agregar mensaje del sistema localmente indicando el cambio
   agregarMensajeSistema(`Te has unido a la sala: # ${nuevaSala}`);
 }
 
-// Cambiar de sala al hacer click en el Sidebar
 roomsList.addEventListener('click', function (e) {
   const item = e.target.closest('.room-item');
   if (!item || item.classList.contains('active')) return;
@@ -109,9 +182,7 @@ roomsList.addEventListener('click', function (e) {
   cambiarDeSala(item.dataset.room);
 });
 
-// Renderizar un único mensaje individual en el DOM
 function renderizarUnMensaje(msg) {
-  // Si hay un filtro de búsqueda activo y el texto no coincide, lo ocultamos
   const filtro = searchInput.value.trim().toLowerCase();
   if (filtro && !msg.text.toLowerCase().includes(filtro)) return;
 
@@ -137,7 +208,6 @@ function renderizarUnMensaje(msg) {
   messagesWindow.appendChild(msgNode);
   messagesWindow.scrollTop = messagesWindow.scrollHeight;
 
-  // Sonido si el mensaje es de otra persona
   if (msg.user !== nickname && msg.user !== 'Sistema') {
     ejecutarNotificacion();
   }
@@ -152,7 +222,7 @@ function renderingAdjunto(fileData) {
 
 function agregarMensajeSistema(texto) {
   const ahora = new Date();
-  const horaString = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+ const horaString = ahora.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   renderizarUnMensaje({
     user: 'Sistema',
     text: texto,
@@ -160,11 +230,8 @@ function agregarMensajeSistema(texto) {
   });
 }
 
-// ========================================================
-// ESCUCHADOR ÚNICO DE ENVÍO DE MENSAJES (100% UNIFICADO)
-// ========================================================
 messageForm.addEventListener('submit', function (e) {
-  e.preventDefault(); // 👈 ¡Frenado total! Esto evita la recarga que te mandaba al login
+  e.preventDefault(); 
   
   const texto = messageInput.value.trim();
   const archivo = fileInput.files[0];
@@ -190,25 +257,20 @@ messageForm.addEventListener('submit', function (e) {
     };
   }
 
-  // Guardar directo en Firebase 
   push(currentRoomRef, nuevoMensaje);
 
-  // Limpiar los inputs de la interfaz de forma limpia
   messageInput.value = '';
   fileInput.value = '';
   emojiContainer.classList.add('hidden');
 
-  // Limpiar los estados de escritura inmediatamente al enviar el mensaje
   if (typingTimeout) clearTimeout(typingTimeout);
   if (miRefEscritura) remove(miRefEscritura);
 });
 
-// Buscador reactivo
 searchInput.addEventListener('input', function () {
   cambiarDeSala(activeRoom);
 });
 
-// Sistema de Notificaciones
 function ejecutarNotificacion() {
   notificationSound.play().catch(() => {});
   if (Notification.permission === 'granted') {
@@ -222,7 +284,6 @@ if (Notification.permission !== 'granted' && Notification.permission !== 'denied
   Notification.requestPermission();
 }
 
-// Lógica de Emojis 
 const picker = createPicker({
   rootElement: emojiContainer
 });
@@ -244,60 +305,55 @@ document.addEventListener('click', function (e) {
 });
 
 // ========================================================
-//  LOGICA EXTRA: USUARIOS EN LÍNEA Y "ESCRIBIENDO..."
+// ECOSISTEMA EN TIEMPO REAL: PRESENCIA Y "ESCRIBIENDO..."
 // ========================================================
 const usersListContainer = document.getElementById('users-list');
 const typingIndicator = document.getElementById('typing-indicator');
 let typingTimeout = null;
 
 function iniciarSistemaPresenciaYEscritura() {
-  // 1. REGISTRAR QUE ESTAMOS EN LÍNEA
   const miRefPresencia = ref(db, `presence/${nickname}`);
   set(miRefPresencia, { status: "online" });
   
-  // Si el usuario cierra la pestaña, se borra automáticamente de la lista
   onDisconnect(miRefPresencia).remove();
 
-  // 2. ESCUCHAR A TODOS LOS USUARIOS CONECTADOS
   const listaPresenciaRef = ref(db, 'presence');
+  
   onValue(listaPresenciaRef, (snapshot) => {
     usersListContainer.innerHTML = ''; 
     
+    // Log para verificar si llegan datos
+    console.log("Usuarios en presencia:", snapshot.val()); 
+
     snapshot.forEach((childSnapshot) => {
       const nombreUsuarioConectado = childSnapshot.key;
       
       const li = document.createElement('li');
       li.className = 'user-item';
+      li.style.display = "flex"; // Forzamos visibilidad
+      li.style.color = "#b9bbbe"; // Aseguramos color visible
       li.textContent = nombreUsuarioConectado;
       
       usersListContainer.appendChild(li);
     });
   });
 
-  // Inicializar la referencia exacta de escritura para la sala activa
   miRefEscritura = ref(db, `typing/${activeRoom}/${nickname}`);
 
-  // 3. ACTUALIZAR NUESTRO ESTADO EN FIREBASE AL TECLEAR
   messageInput.addEventListener('input', () => {
     if (!miRefEscritura) return;
-
     set(miRefEscritura, true);
     clearTimeout(typingTimeout);
-
-    // Si pasan 2 segundos sin teclear, se borra el indicador
     typingTimeout = setTimeout(() => {
       if (miRefEscritura) remove(miRefEscritura);
     }, 2000);
   });
 }
 
-// 4. ESCUCHAR QUIÉN ESTÁ ESCRIBIENDO EN LA SALA ACTUAL
 let salaEscrituraRef = null;
 
 function escucharEscrituraEnSala(sala) {
-  if (salaEscrituraRef) {
-    off(salaEscrituraRef);
-  }
+  if (salaEscrituraRef) off(salaEscrituraRef);
 
   salaEscrituraRef = ref(db, `typing/${sala}`);
   
